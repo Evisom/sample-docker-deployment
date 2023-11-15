@@ -1,0 +1,39 @@
+name: Workflow
+on: push
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: export PYTHONPATH=$(pwd) && python tests/main.py
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: tests
+    env:
+      VAULT_ADDR: "http://vault.dmitriy.space"
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Install HashiCorp
+        run: |
+          curl -LO https://releases.hashicorp.com/vault/1.15.2/vault_1.15.2_linux_amd64.zip
+          unzip vault_1.15.2_linux_amd64.zip
+          sudo mv vault /usr/local/bin/
+
+      - name: Log in to HashiCorp Vault
+        run: vault login -no-print -method=userpass username=${{ secrets.VAULT_USERNAME }} password=${{ secrets.VAULT_PASSWORD }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Docker Login
+        run: echo $(vault kv get -field=DOCKER_PASSWORD kv/sample-docker-deployment) | docker login https://docker.dmitriy.space/ --username $(vault kv get -field=DOCKER_USERNAME kv/sample-docker-deployment) --password-stdin
+
+      - name: Docker build image
+        run: docker build -t docker.dmitriy.space/sample-docker-deployment:latest .
+
+      - name: Docker push
+        run: docker push docker.dmitriy.space/sample-docker-deployment:latest
